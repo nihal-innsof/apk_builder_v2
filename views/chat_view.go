@@ -3,6 +3,7 @@ package views
 import (
 	"fmt"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -26,6 +27,20 @@ func NewChatView(conn *websocket.Conn) *ChatView {
 	vp.SetContent(`Welcome to chat room!
     Type a message and press Enter to send.
     `)
+	vp.KeyMap = viewport.KeyMap{
+		PageDown: key.NewBinding(
+			key.WithKeys("pgdown"),
+		),
+		PageUp: key.NewBinding(
+			key.WithKeys("pgup"),
+		),
+		Up: key.NewBinding(
+			key.WithKeys("up"),
+		),
+		Down: key.NewBinding(
+			key.WithKeys("down"),
+		),
+	}
 	ci := textinput.New()
 	ci.Placeholder = "Type a message..."
 	ci.CharLimit = 255
