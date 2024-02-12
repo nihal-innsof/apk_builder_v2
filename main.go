@@ -10,7 +10,7 @@ import (
 	"nihal/apk_builder_v2/views"
 )
 
-const wsUrl = "wss://ws.postman-echo.com/raw"
+const wsUrl = "ws://localhost:8080/ws"
 
 func main() {
 	origin := "http://ws.postman-echo.com/"

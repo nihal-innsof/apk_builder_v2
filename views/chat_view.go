@@ -3,6 +3,7 @@ package views
 import (
 	"fmt"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,6 +14,12 @@ type ChatView struct {
 	viewport  viewport.Model
 	chatInput textinput.Model
 	conn      *websocket.Conn
+	recvChan  chan wsMessage
+	msgs      []string
+}
+
+type wsMessage struct {
+	Msg string
 }
 
 func NewChatView(conn *websocket.Conn) *ChatView {
@@ -20,40 +27,77 @@ func NewChatView(conn *websocket.Conn) *ChatView {
 	vp.SetContent(`Welcome to chat room!
     Type a message and press Enter to send.
     `)
+	vp.KeyMap = viewport.KeyMap{
+		PageDown: key.NewBinding(
+			key.WithKeys("pgdown"),
+		),
+		PageUp: key.NewBinding(
+			key.WithKeys("pgup"),
+		),
+		Up: key.NewBinding(
+			key.WithKeys("up"),
+		),
+		Down: key.NewBinding(
+			key.WithKeys("down"),
+		),
+	}
 	ci := textinput.New()
 	ci.Placeholder = "Type a message..."
 	ci.CharLimit = 255
 	ci.Width = 60
 	ci.Focus()
+	recvChan := make(chan wsMessage)
+	go func() {
+		for {
+			msg := wsMessage{}
+			msgBytes := make([]byte, 1024)
+			if _, err := conn.Read(msgBytes); err != nil {
+				fmt.Println("Error reading message:", err)
+				return
+			}
+			msg.Msg = string(msgBytes)
+			recvChan <- msg
+		}
+	}()
 	return &ChatView{
 		viewport:  vp,
 		chatInput: ci,
 		conn:      conn,
+		recvChan:  recvChan,
 	}
 }
 
 func (m ChatView) Init() tea.Cmd {
-	return textinput.Blink
+	return tea.Batch(textinput.Blink, getNextMsg(m.recvChan))
 }
 
 func (m ChatView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
 		ciCmd tea.Cmd
 		vpCmd tea.Cmd
+		mCmd  tea.Cmd
 	)
 	m.chatInput, ciCmd = m.chatInput.Update(msg)
 	m.viewport, vpCmd = m.viewport.Update(msg)
 	switch msg := msg.(type) {
+	case wsMessage:
+		m.msgs = append(m.msgs, msg.Msg)
+		m.viewport.SetContent(m.viewMessages())
+		m.viewport.GotoBottom()
+		mCmd = getNextMsg(m.recvChan)
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "esc":
 			return m, tea.Quit
 		case "enter":
-			writeMessage(m.conn, m.chatInput.Value())
+			message := m.chatInput.Value()
+			if message != "" {
+				writeMessage(m.conn, m.chatInput.Value())
+			}
 			m.chatInput.Reset()
 		}
 	}
-	return m, tea.Batch(ciCmd, vpCmd)
+	return m, tea.Batch(ciCmd, vpCmd, mCmd)
 }
 
 func (m ChatView) View() string {
@@ -65,6 +109,20 @@ func (m ChatView) View() string {
 		m.chatInput.View(),
 	)
 	return s
+}
+
+func (m ChatView) viewMessages() string {
+	s := ""
+	for i := range m.msgs {
+		s += fmt.Sprintf("%s\n", m.msgs[i])
+	}
+	return s
+}
+
+func getNextMsg(c <-chan wsMessage) tea.Cmd {
+	return func() tea.Msg {
+		return <-c
+	}
 }
 
 func writeMessage(conn *websocket.Conn, message string) {
